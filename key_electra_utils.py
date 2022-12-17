@@ -12,11 +12,7 @@ electra를 활용해 sentence embedding, Doc embedding을 수행하기 위한 �
 def Merge_Series_to_str(series: pd.Series) -> str:
 
     """
-    column 내 list 자료형이 있을 때, csv 저장 시 str 타입으로 저장됨.
-    ast.literal_eval 매서드를 새용해 str -> list로 다시 전환하는 매서드 추가
-
-    type = 'str' 모든 문장을 하나의 string으로 저장
-    type = 'list' 모든 문장을 하나의 list로 저장
+    pd.Series 파일을 하나의 str으로 변환하는 함수
 
     """
     if isinstance(series, pd.Series):
@@ -28,6 +24,10 @@ def Merge_Series_to_str(series: pd.Series) -> str:
     lst = []
     for item in val_array:
         if item[0] == "[":
+            """
+            str으로 저장된 list 자료형을 다시 list로 변환하는 함수
+            ** list type을 csv 저장 시 str 타입으로 저장됨.
+            """
             item = ast.literal_eval(item)
             lst.extend(item)
         else:
