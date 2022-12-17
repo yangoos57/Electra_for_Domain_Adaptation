@@ -2,6 +2,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import ast
 import re
+import os
 
 """
 electra를 활용해 sentence embedding, Doc embedding을 수행하기 위한 여러 전처리 함수를 정리하였음
@@ -9,10 +10,10 @@ electra를 활용해 sentence embedding, Doc embedding을 수행하기 위한 �
 """
 
 
-def Merge_Series_to_str(series: pd.Series) -> str:
+def merge_series_to_str(series: pd.Series) -> str:
 
     """
-    pd.Series 파일을 하나의 str으로 변환하는 함수
+    pd.Series 데이터를 하나의 str으로 통합하는 함수
 
     """
     if isinstance(series, pd.Series):
@@ -41,7 +42,7 @@ def Merge_Series_to_str(series: pd.Series) -> str:
     return re.sub(r"[^\w\s]", "", " ".join(lst))
 
 
-def trans_engwords_to_hanwords(words: str, print_on=False) -> list:
+def trans_eng_to_han(words: str, print_on=False, dir="preprocess/englist.csv") -> list:
     """
     englist.csv 내 한,영 문자를 활용해
     영문 용어를 한글로 바꾸는 함수임.
@@ -49,9 +50,11 @@ def trans_engwords_to_hanwords(words: str, print_on=False) -> list:
 
     """
 
+    assert os.path.exists(dir), f"{dir} 존재 여부를 확인해주세요."
+
     result: list = words.split()
 
-    EngToKorDict = pd.read_csv("data/englist.csv")
+    EngToKorDict = pd.read_csv(dir)
 
     eng_list = EngToKorDict["eng"].tolist()
 
@@ -69,14 +72,14 @@ def trans_engwords_to_hanwords(words: str, print_on=False) -> list:
     return result
 
 
-def find_han_words(text: str) -> list:
+def find_han(text: str) -> list:
     """
     문장 내 한글만 추출
     """
     return re.findall("[\u3130-\u318F\uAC00-\uD7A3]+", text)
 
 
-def find_eng_words(text: str) -> list:
+def find_eng(text: str) -> list:
     """
     문장 내 영어만 추출
     """
