@@ -127,6 +127,7 @@ class Electra(nn.Module):
         self,
         generator,
         discriminator,
+        tokenizer,
         *,
         num_tokens=None,
         discr_dim=-1,
@@ -145,6 +146,7 @@ class Electra(nn.Module):
 
         self.generator = generator
         self.discriminator = discriminator
+        self.tokenizer = tokenizer
 
         if discr_dim > 0:
             self.discriminator = nn.Sequential(
@@ -172,8 +174,6 @@ class Electra(nn.Module):
         self.gen_weight = gen_weight
 
     def forward(self, input, **kwargs):
-
-        b, t = input.shape
 
         replace_prob = prob_mask_like(input, self.replace_prob)
 
@@ -218,21 +218,13 @@ class Electra(nn.Module):
             masking_mask * replace_prob, self.mask_token_id
         )
 
-        show_mask = tokenizer.convert_ids_to_tokens(masked_input.data[0].tolist())
-        print("Masked token 생성 결과 : ", show_mask)
-
         # get generator output and get mlm loss(수정)
         logits = self.generator(masked_input, **kwargs).logits
 
-        print(
-            "Generator 예측 결과 : ",
-            tokenizer.convert_ids_to_tokens(
-                logits.unsqueeze(0).max(dim=-1)[1][0][0].tolist()
-            ),
-        )
-
         mlm_loss = F.cross_entropy(
-            logits.squeeze(0), gen_labels.squeeze(0), ignore_index=self.pad_token_id
+            logits.reshape(-1, logits.shape[-1]),
+            gen_labels.reshape(-1),
+            ignore_index=self.pad_token_id,
         )
 
         # use mask from before to select logits that need sampling
@@ -240,7 +232,7 @@ class Electra(nn.Module):
 
         # sample
         sampled = gumbel_sample(sample_logits, temperature=self.temperature)
-        print("sample token :", tokenizer.convert_ids_to_tokens(sampled))
+        # print("sample token :", self.tokenizer.convert_ids_to_tokens(sampled))
 
         # scatter the sampled values back to the input
         disc_input = input.clone()
@@ -249,55 +241,65 @@ class Electra(nn.Module):
         # generate discriminator labels, with replaced as True and original as False
         disc_labels = (input != disc_input).float().detach()
 
-        # 결과 보여주기
-        print_input = tokenizer.convert_ids_to_tokens(disc_input[0].tolist())
-
-        # token 단어 표현하기
-        for i in range(len(disc_input[0])):
-            if show_mask[i] == "[MASK]":
-                print_input[i] = "<< " + print_input[i] + " >>"
-
-        print("변경된 문장 : ", print_input)
-
         # get discriminator predictions of replaced / original
         non_padded_indices = torch.nonzero(input != self.pad_token_id, as_tuple=True)
 
         # get discriminator output and binary cross entropy loss
         disc_logits = self.discriminator(disc_input, **kwargs).logits
-        disc_logits = disc_logits.reshape_as(disc_labels)
+        disc_logits_reshape = disc_logits.reshape_as(disc_labels)
 
         disc_loss = F.binary_cross_entropy_with_logits(
-            disc_logits[non_padded_indices], disc_labels[non_padded_indices]
+            disc_logits_reshape[non_padded_indices], disc_labels[non_padded_indices]
         )
 
         # gather metrics
         with torch.no_grad():
             gen_predictions = torch.argmax(logits, dim=-1)
 
-            # 결과 보여주기
-            print_input = tokenizer.convert_ids_to_tokens(gen_predictions[0].tolist())
-
-            # token 단어 표현하기
-            for i in range(len(disc_input[0])):
-                if show_mask[i] == "[MASK]":
-                    print_input[i] = "<< " + print_input[i] + " >>"
-
-            print("예측한 문장 : ", print_input)
-
-            disc_predictions = torch.round((torch.sign(disc_logits) + 1.0) * 0.5)
+            disc_predictions = torch.round(
+                (torch.sign(disc_logits_reshape) + 1.0) * 0.5
+            )
             gen_acc = (gen_labels[mask] == gen_predictions[mask]).float().mean()
             disc_acc = (
                 0.5 * (disc_labels[mask] == disc_predictions[mask]).float().mean()
                 + 0.5 * (disc_labels[~mask] == disc_predictions[~mask]).float().mean()
             )
 
+            #####
+
+            # [PAD] 제거
+            try:
+                n = masked_input.data[0].tolist().index(3) + 1
+            except:
+                n = None
+
+            # masked_sen : Masking한 문장 생성
+            masked_sen = self.tokenizer.convert_ids_to_tokens(
+                masked_input.data[0].tolist()[:n]
+            )
+
+            # gen_prd : Generator 문장 예측
+            # [:n] : padding 제거
+            gen_prd = self.tokenizer.convert_ids_to_tokens(
+                logits.unsqueeze(0).max(dim=-1)[1][0][0].tolist()[:n]
+            )
+
+            # gen_chg_sen : Generator 신규 문장 생성
+            gen_chg_sen = self.tokenizer.convert_ids_to_tokens(
+                disc_input[0].tolist()[:n]
+            )
+
+            for i in range(len(disc_input[0][:n])):
+                if masked_sen[i] == "[MASK]":
+                    gen_chg_sen[i] = "<< " + gen_chg_sen[i] + " >>"
+
         # return weighted sum of losses
-        return Results(
-            (self.gen_weight * mlm_loss + self.disc_weight * disc_loss).item(),
-            mlm_loss.item(),
-            disc_loss.item(),
-            gen_acc.item(),
-            disc_acc.item(),
+        return (masked_sen, gen_prd, gen_chg_sen), Results(
+            self.gen_weight * mlm_loss + self.disc_weight * disc_loss,
+            mlm_loss,
+            disc_loss,
+            gen_acc,
+            disc_acc,
             disc_labels,
             disc_predictions,
         )

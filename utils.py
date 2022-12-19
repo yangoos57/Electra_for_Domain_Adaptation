@@ -42,7 +42,7 @@ def merge_series_to_str(series: pd.Series) -> str:
     return re.sub(r"[^\w\s]", "", " ".join(lst))
 
 
-def trans_eng_to_han(words: str, print_on=False, dir="preprocess/englist.csv") -> list:
+def trans_eng_to_han(words: str, englist, print_on=False) -> list:
     """
     englist.csv 내 한,영 문자를 활용해
     영문 용어를 한글로 바꾸는 함수임.
@@ -50,21 +50,15 @@ def trans_eng_to_han(words: str, print_on=False, dir="preprocess/englist.csv") -
 
     """
 
-    assert os.path.exists(dir), f"{dir} 존재 여부를 확인해주세요."
-
     result: list = words.split()
 
-    EngToKorDict = pd.read_csv(dir)
-
-    eng_list = EngToKorDict["eng"].tolist()
+    eng_list = englist["eng"].tolist()
 
     for i in range(len(result)):
         lower_case = result[i].lower()
         if lower_case in eng_list:
 
-            eng_to_kor = EngToKorDict[EngToKorDict["eng"] == lower_case]["kor"].values[
-                0
-            ]
+            eng_to_kor = englist[englist["eng"] == lower_case]["kor"].values[0]
             if print_on:
                 print("변환 :", lower_case, " => ", eng_to_kor)
 
