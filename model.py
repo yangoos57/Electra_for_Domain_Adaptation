@@ -75,50 +75,6 @@ def get_mask_subset_with_prob(mask, prob):
     return new_mask[:, 1:].bool()
 
 
-# hidden layer extractor class, for magically adding adapter to language model to be pretrained
-
-
-class HiddenLayerExtractor(nn.Module):
-    def __init__(self, net, layer=-2):
-        super().__init__()
-        self.net = net
-        self.layer = layer
-
-        self.hidden = None
-        self.hook_registered = False
-
-    def _find_layer(self):
-        if type(self.layer) == str:
-            modules = dict([*self.net.named_modules()])
-            return modules.get(self.layer, None)
-        elif type(self.layer) == int:
-            children = [*self.net.children()]
-            return children[self.layer]
-        return None
-
-    def _hook(self, _, __, output):
-        self.hidden = output
-
-    def _register_hook(self):
-        layer = self._find_layer()
-        assert layer is not None, f"hidden layer ({self.layer}) not found"
-        handle = layer.register_forward_hook(self._hook)
-        self.hook_registered = True
-
-    def forward(self, x):
-        if self.layer == -1:
-            return self.net(x)
-
-        if not self.hook_registered:
-            self._register_hook()
-
-        _ = self.net(x)
-        hidden = self.hidden
-        self.hidden = None
-        assert hidden is not None, f"hidden layer {self.layer} never emitted an output"
-        return hidden
-
-
 # main electra class
 
 
@@ -129,7 +85,7 @@ class Electra(nn.Module):
         discriminator,
         tokenizer,
         *,
-        num_tokens=None,
+        num_tokens=35000,
         discr_dim=-1,
         discr_layer=-1,
         mask_prob=0.15,
@@ -147,12 +103,6 @@ class Electra(nn.Module):
         self.generator = generator
         self.discriminator = discriminator
         self.tokenizer = tokenizer
-
-        if discr_dim > 0:
-            self.discriminator = nn.Sequential(
-                HiddenLayerExtractor(discriminator, layer=discr_layer),
-                nn.Linear(discr_dim, 1),
-            )
 
         # mlm related probabilities
         self.mask_prob = mask_prob
@@ -222,10 +172,14 @@ class Electra(nn.Module):
         logits = self.generator(masked_input, **kwargs).logits
 
         mlm_loss = F.cross_entropy(
-            logits.reshape(-1, logits.shape[-1]),
-            gen_labels.reshape(-1),
-            ignore_index=self.pad_token_id,
+            logits.transpose(1, 2), gen_labels, ignore_index=self.pad_token_id
         )
+
+        # mlm_loss = F.cross_entropy(
+        #     logits.reshape(-1, logits.shape[-1]),
+        #     gen_labels.reshape(-1),
+        #     ignore_index=self.pad_token_id,
+        # )
 
         # use mask from before to select logits that need sampling
         sample_logits = logits[mask_indices]

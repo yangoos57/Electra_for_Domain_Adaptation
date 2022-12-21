@@ -1,2 +1,3 @@
 # Electra_for_fine_tuning
-Electra를 활용해 Further Pretraining과 Fine tuning을 수행한 프로젝트입니다.
+
+Electra를 활용해 Domain Adaptation을 수행했던 프로젝트입니다.
