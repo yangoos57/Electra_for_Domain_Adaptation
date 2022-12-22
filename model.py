@@ -32,7 +32,8 @@ Results = namedtuple(
     ],
 )
 
-# helpers
+
+# 모델 내부에서 활용되는 함수 정의
 
 
 def log(t, eps=1e-9):
@@ -86,11 +87,8 @@ class Electra(nn.Module):
         tokenizer,
         *,
         num_tokens=35000,
-        discr_dim=-1,
-        discr_layer=-1,
         mask_prob=0.15,
         replace_prob=0.85,
-        random_token_prob=0.0,
         mask_token_id=4,
         pad_token_id=0,
         mask_ignore_token_ids=[2, 3],
@@ -99,6 +97,18 @@ class Electra(nn.Module):
         temperature=1.0,
     ):
         super().__init__()
+
+        """
+        num_tokens: 모델 vocab_size
+        mask_prob: 토큰 중 [MASK] 토큰으로 대체되는 비율
+        replace_prop:  토큰 중 [MASK] 토큰으로 대체되는 비율(?????)
+        mask_token_i: [MASK] Token id
+        pad_token_i: [PAD] Token id
+        mask_ignore_token_id: [CLS],[SEP] Token id
+        disc_weigh: discriminator loss의 Weight 조정을 위한 값
+        gen_weigh: generator loss의 Weight 조정을 위한 값
+        temperature: gumbel_distribution에 활용되는 arg, 값이 높을수록 모집단 분포와 유사한 sampling 수행
+        """
 
         self.generator = generator
         self.discriminator = discriminator
@@ -109,7 +119,6 @@ class Electra(nn.Module):
         self.replace_prob = replace_prob
 
         self.num_tokens = num_tokens
-        self.random_token_prob = random_token_prob
 
         # token ids
         self.pad_token_id = pad_token_id
@@ -123,7 +132,18 @@ class Electra(nn.Module):
         self.disc_weight = disc_weight
         self.gen_weight = gen_weight
 
-    def forward(self, input, **kwargs):
+    def forward(self, input_ids, **kwargs):
+
+        input = input_ids["input_ids"]
+
+        # ------ 1단계 Input Data Masking --------#
+
+        """
+        - Generator는 Bert와 구조도 동일하고 학습하는 방법도 동일함. 
+
+        - Generator 학습을 위해선 [Masked] 토큰이 필요하므로 input data를 Masking하는 과정이 필요함.
+
+        """
 
         replace_prob = prob_mask_like(input, self.replace_prob)
 
@@ -145,28 +165,20 @@ class Electra(nn.Module):
         # not to be mistakened for the mask above, which is for all tokens, whether not replaced nor replaced with random tokens
         masking_mask = mask.clone()
 
-        # if random token probability > 0 for mlm
-        if self.random_token_prob > 0:
-            assert (
-                self.num_tokens is not None
-            ), "Number of tokens (num_tokens) must be passed to Electra for randomizing tokens during masked language modeling"
-
-            random_token_prob = prob_mask_like(input, self.random_token_prob)
-            random_tokens = torch.randint(
-                0, self.num_tokens, input.shape, device=input.device
-            )
-            random_no_mask = mask_with_tokens(random_tokens, self.mask_ignore_token_ids)
-            random_token_prob &= ~random_no_mask
-
-            masked_input = torch.where(random_token_prob, random_tokens, masked_input)
-
-            # remove random token prob mask from masking mask
-            masking_mask = masking_mask & ~random_token_prob
-
         # [mask] input
         masked_input = masked_input.masked_fill(
             masking_mask * replace_prob, self.mask_token_id
         )
+
+        # ------ 2단계 Masking 된 문장을 Generator가 학습하고 가짜 Token을 생성 --------#
+
+        """
+        - Generator를 학습하여 MLM_loss 계산(combined_loss 계산에 활용)
+        - Generator에서 예측한 문장을 Discriminator 학습에 활용
+        - ex) 원본 문장 : ~~~
+              마스킹 문장 : 
+              가짜 문장 :
+        """
 
         # get generator output and get mlm loss(수정)
         logits = self.generator(masked_input, **kwargs).logits
@@ -175,18 +187,11 @@ class Electra(nn.Module):
             logits.transpose(1, 2), gen_labels, ignore_index=self.pad_token_id
         )
 
-        # mlm_loss = F.cross_entropy(
-        #     logits.reshape(-1, logits.shape[-1]),
-        #     gen_labels.reshape(-1),
-        #     ignore_index=self.pad_token_id,
-        # )
-
         # use mask from before to select logits that need sampling
         sample_logits = logits[mask_indices]
 
         # sample
         sampled = gumbel_sample(sample_logits, temperature=self.temperature)
-        # print("sample token :", self.tokenizer.convert_ids_to_tokens(sampled))
 
         # scatter the sampled values back to the input
         disc_input = input.clone()
@@ -194,6 +199,15 @@ class Electra(nn.Module):
 
         # generate discriminator labels, with replaced as True and original as False
         disc_labels = (input != disc_input).float().detach()
+
+        # ------ 3단계 가짜 Token의 진위여부를 Discriminator가 판단하는 단계 --------#
+
+        """
+        - 가짜 문장을 학습해 개별 토큰에 대해 진위여부를 판단
+        - 진짜 token이라 판단하면 0, 가짜 토큰이라 판단하면 1을 부여
+        - 정답과 비교해 disc_loss를 계산(combined_loss 계산에 활용)
+        - combined_loss : 학습의 최종 loss임. 모델은 combined_loss의 최솟값을 얻기 위한 방식으로 학습 진행
+        """
 
         # get discriminator predictions of replaced / original
         non_padded_indices = torch.nonzero(input != self.pad_token_id, as_tuple=True)
@@ -206,50 +220,35 @@ class Electra(nn.Module):
             disc_logits_reshape[non_padded_indices], disc_labels[non_padded_indices]
         )
 
-        # gather metrics
+        # combined loss 계산
+        # disc_weight을 50으로 주는 이유는 discriminator의 task가 복잡하지 않기 떄문임.
+        # mlm loss의 경우 vocab_size(=35000) 만큼의 loos 계산을 수행하지만
+        # disc_loss의 경우 src_token_len 만큼의 loss 계산을 수행한만큼
+        # loss 값에 큰 차이가 발생함. disc_weight은 이를 보완하는 weight임.
+        combined_loss = (self.gen_weight * mlm_loss + self.disc_weight * disc_loss,)
+
+        # ------ 모델 성능 및 학습 과정을 추적하기 위한 지표(Metrics) 설계 --------#
+
         with torch.no_grad():
+            # gen mask 예측
             gen_predictions = torch.argmax(logits, dim=-1)
 
+            # fake token 진위 예측
             disc_predictions = torch.round(
                 (torch.sign(disc_logits_reshape) + 1.0) * 0.5
             )
+            # generator_accuracy
             gen_acc = (gen_labels[mask] == gen_predictions[mask]).float().mean()
+            # discriminator_accuracy
             disc_acc = (
                 0.5 * (disc_labels[mask] == disc_predictions[mask]).float().mean()
                 + 0.5 * (disc_labels[~mask] == disc_predictions[~mask]).float().mean()
             )
 
-            #####
+        #
 
-            # [PAD] 제거
-            try:
-                n = masked_input.data[0].tolist().index(3) + 1
-            except:
-                n = None
-
-            # masked_sen : Masking한 문장 생성
-            masked_sen = self.tokenizer.convert_ids_to_tokens(
-                masked_input.data[0].tolist()[:n]
-            )
-
-            # gen_prd : Generator 문장 예측
-            # [:n] : padding 제거
-            gen_prd = self.tokenizer.convert_ids_to_tokens(
-                logits.unsqueeze(0).max(dim=-1)[1][0][0].tolist()[:n]
-            )
-
-            # gen_chg_sen : Generator 신규 문장 생성
-            gen_chg_sen = self.tokenizer.convert_ids_to_tokens(
-                disc_input[0].tolist()[:n]
-            )
-
-            for i in range(len(disc_input[0][:n])):
-                if masked_sen[i] == "[MASK]":
-                    gen_chg_sen[i] = "<< " + gen_chg_sen[i] + " >>"
-
-        # return weighted sum of losses
-        return (masked_sen, gen_prd, gen_chg_sen), Results(
-            self.gen_weight * mlm_loss + self.disc_weight * disc_loss,
+        return Results(
+            combined_loss,
             mlm_loss,
             disc_loss,
             gen_acc,
