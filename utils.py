@@ -44,7 +44,7 @@ def merge_series_to_str(series: pd.Series) -> str:
 
 def trans_eng_to_han(words: str, englist, print_on=False) -> list:
     """
-    englist.csv 내 한,영 문자를 활용해
+    preprocess/englist.csv 내 한,영 문자를 활용해
     영문 용어를 한글로 바꾸는 함수임.
     ex) python -> 파이썬
 
@@ -80,7 +80,7 @@ def find_eng(text: str) -> list:
     return re.findall("[a-zA-Z]+", text)
 
 
-def key_extraction(token_list: list, model, min_num=2, min_rank=20) -> pd.DataFrame:
+def key_extraction(token_list: list, model, min_num=3, min_rank=20) -> pd.DataFrame:
     """
     문서의 핵심 키워드를 추출하는 매서드
     1. 문장 내 단어 출현 횟수 계산 및 리스트 확보
@@ -93,14 +93,14 @@ def key_extraction(token_list: list, model, min_num=2, min_rank=20) -> pd.DataFr
     token_list : 토큰화 된 리스트 ex) ['파이썬','라이브러리','예제입니다.']
     model : sentence_transformers 모델
     min_num = 키워드 최소 출현 횟수
-    min_num = 연관성 있는 키워드 추출 개수
+    min_rank = 연관성 있는 키워드 추출 개수
 
     """
     # 문장 내 단어에 대한 value_counts
     candidates = pd.DataFrame(token_list)[0].value_counts()
 
-    # 3개 이상인 단어만 추출
-    candidate_words = candidates[candidates > min_num].index.values.tolist()
+    # min_num개 이상인 단어만 추출
+    candidate_words = candidates[candidates >= min_num].index.values.tolist()
 
     doc_embedding = model.encode([" ".join(token_list)])
     candidate_embeddings = model.encode(candidate_words)

@@ -1,14 +1,3 @@
-### Electra-pytorch 라이브러리를 KoElectra에 활용할 수 있도록 일부 변형했습니다.
-
-### Electra로 Domain Adaptation을 수행하기 위해 개발했습니다.
-
-### Generator 모델은 ElectraForMaskedLM로, Discriminator 모델은 ElectraForPreTraining로 불러와야 합니다.
-
-### 더 많은 내용을 알고 싶으신 경우 Domain Adaptation Tutorial을 참고해주세요.
-
-### Electra-pytorh 원본 github 주소 : https://github.com/lucidrains/electra-pytorch
-
-
 import math
 from functools import reduce
 from collections import namedtuple
@@ -29,9 +18,10 @@ Results = namedtuple(
         "disc_acc",
         "disc_labels",
         "disc_predictions",
+        "origin",
+        "disc",
     ],
 )
-
 
 # 모델 내부에서 활용되는 함수 정의
 
@@ -134,7 +124,10 @@ class Electra(nn.Module):
 
     def forward(self, input_ids, **kwargs):
 
-        input = input_ids["input_ids"]
+        try:
+            input = input_ids["input_ids"]
+        except:
+            input = input_ids
 
         # ------ 1단계 Input Data Masking --------#
 
@@ -175,9 +168,9 @@ class Electra(nn.Module):
         """
         - Generator를 학습하여 MLM_loss 계산(combined_loss 계산에 활용)
         - Generator에서 예측한 문장을 Discriminator 학습에 활용
-        - ex) 원본 문장 : ~~~
-              마스킹 문장 : 
-              가짜 문장 :
+        - ex) 원본 문장 :  특히 안드로이드 플랫폼 기반의 (웹)앱과 (하이)브드리앱에 초점을 맞추고 있다
+              가짜 문장 :  특히 안드로이드 플랫폼 기반의 (마이크로)앱과 (이)브드리앱에 초점을 맞추고 있다
+
         """
 
         # get generator output and get mlm loss(수정)
@@ -225,7 +218,7 @@ class Electra(nn.Module):
         # mlm loss의 경우 vocab_size(=35000) 만큼의 loos 계산을 수행하지만
         # disc_loss의 경우 src_token_len 만큼의 loss 계산을 수행한만큼
         # loss 값에 큰 차이가 발생함. disc_weight은 이를 보완하는 weight임.
-        combined_loss = (self.gen_weight * mlm_loss + self.disc_weight * disc_loss,)
+        combined_loss = self.gen_weight * mlm_loss + self.disc_weight * disc_loss
 
         # ------ 모델 성능 및 학습 과정을 추적하기 위한 지표(Metrics) 설계 --------#
 
@@ -239,13 +232,12 @@ class Electra(nn.Module):
             )
             # generator_accuracy
             gen_acc = (gen_labels[mask] == gen_predictions[mask]).float().mean()
+
             # discriminator_accuracy
             disc_acc = (
                 0.5 * (disc_labels[mask] == disc_predictions[mask]).float().mean()
                 + 0.5 * (disc_labels[~mask] == disc_predictions[~mask]).float().mean()
             )
-
-        #
 
         return Results(
             combined_loss,
@@ -255,4 +247,6 @@ class Electra(nn.Module):
             disc_acc,
             disc_labels,
             disc_predictions,
+            input,
+            disc_input,
         )
