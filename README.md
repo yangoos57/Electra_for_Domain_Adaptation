@@ -1,7 +1,7 @@
 # Electra_for_Domain_Adaptation
 
 ### 프로젝트 소개
-- Generator와 Descriminator 학습을 위한 구조를 설계하고 🤗Transformers를 활용해 Electra에 대한 Domain Adaptation을 
+- Generator와 Descriminator 학습을 위한 구조 및 🤗Transformers를 활용해 Electra에 대한 Domain Adaptation 수행
 
 - Domain Adaptation은 Electra-Base를 활용했으며 데이터/컴퓨터 과학 분야의 도서 데이터를 학습
 
