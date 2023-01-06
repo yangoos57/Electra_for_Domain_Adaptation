@@ -1,13 +1,15 @@
 # Electra_for_Domain_Adaptation
 
-- Huggingface의 Transformers 라이브러리를 활용해 Electra에 대한 Domain Adaptation을 진행
-- Electra-Base[(koELECTRA)](https://github.com/monologg/KoELECTRA)를 활용해 데이터/컴퓨터 과학 분야의 도서 데이터를 학습
-- Generator와 Descriminator 학습을 위한 구조 설계 [(Pytorch-Electra 코드 활용)](https://github.com/lucidrains/electra-pytorch)
-- Electra의 학습 방식을 이해할 수 있도록 학습 과정에서 모델의 예측 결과 제공
+### 프로젝트 소개
+- Generator와 Descriminator 학습을 위한 구조를 설계하고 🤗Transformers를 활용해 Electra에 대한 Domain Adaptation을 
 
-> Electra 학습 구조와 학습 과정에 대한 상세한 설명은 [Huggingface로 ELECTRA 학습하기 : Domain Adaptation](https://yangoos57.github.io/blog/DeepLearning/paper/Electra/electra/) 참고
->
-> Domain Adaptation에 대한 상세한 설명은 [[NLP] Further Pre-training 및 Fine-tuning 정리](https://yangoos57.github.io/blog/DeepLearning/paper/Finetuning/Finetuning/) 참고
+- Domain Adaptation은 Electra-Base를 활용했으며 데이터/컴퓨터 과학 분야의 도서 데이터를 학습
+
+- Electra의 학습 방식을 이해할 수 있도록 모델의 예측 결과 제공(ELECTRA 학습 데이터 시각화 예시 참고)
+
+- Electra 학습 구조와 학습 과정에 대한 설명은 [ELECTRA 모델 구현 및 Domain Adaptation 방법 정리](https://yangoos57.github.io/blog/DeepLearning/paper/Electra/electra/) 참고
+
+- Domain Adaptation에 대한 설명은 [[NLP] Domain Adaptation과 Finetuning 개념 정리](https://yangoos57.github.io/blog/DeepLearning/paper/Finetuning/Finetuning/) 참고
 
 <br/>
 
@@ -165,3 +167,8 @@ Combined Loss 14.246 -- Generator Loss : 2.97 -- Discriminator Loss : 0.226
   transformers == 4.20.1
   datasets == 2.8.0
 ```
+
+### 참고 라이브러리
+* [Pytorch-Electra](https://github.com/lucidrains/electra-pytorch) 
+* [koELECTRA](https://github.com/monologg/KoELECTRA)
+
